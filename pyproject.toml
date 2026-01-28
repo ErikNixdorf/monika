@@ -1,0 +1,26 @@
+[project]
+name = "monika"
+version = "0.1.0"
+description = "A software module for integrating sensors and analyzing measurement campaign data from the MONIKA monitoring platform"
+authors = [{ name = "Erik Nixdorf" }]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "geopandas>=1.1",
+    "matplotlib>=3.10",
+    "numpy>=2.4",
+    "pandas>=3.0.0",
+    "pytz>=2025.2",
+    "PyYAML>=6.0.3",
+    "rasterio>=1.5.0",
+    "scipy>=1.17.0",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project.urls]
+Homepage = "https://github.com/yourname/monika"
+Issues = "https://github.com/yourname/monika/issues"
