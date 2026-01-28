@@ -1,0 +1,25 @@
+# This File allows to define how to read the equipment from monika during a campaign and to visualize and export joined results
+info:
+    campaign: GPS_Test
+    time_zone: Europe/Berlin
+    coordinate_system : 25833
+    contact: Erik Nixdorf
+    data_dir: tests #all data is located relativ to this path and considering that next level dir is named after the campaign
+#input describes the location of all input datasets as well as parameter specifications
+devices:
+    gps_1:
+        type: gps
+        fabricate: GNS_3000
+        file_name: LOG00001.TXT
+output:
+    plot_1:
+        type: trajectory
+        config:
+            gps_to_use: gps_1
+            background_image: study_site.tif
+            label_interval : 1 # in seconds
+            parameter: height_gps
+            device_name: all
+            location_cols : 
+                - HW_GPS
+                - RW_GPS

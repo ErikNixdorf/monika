@@ -19,7 +19,7 @@ class Monika():
         # load obvious ones    
         self.name = name
         if wd is None:
-            self.wd = os.getcwd()
+            self.wd = Path.cwd()
         else:
             self.wd=wd        
         #%% read the config file
@@ -125,7 +125,10 @@ class Monika():
                                     data_path = self.data_path / device['file_name'],
                                     sonar_config = device['sonar'])
                 case 'gps':
-                    self.add_gps()
+                    self.add_gps(fabricate=device['fabricate'],
+                                    name=device_name,
+                                    data_path = self.data_path / device['file_name'],
+                                    )
             
                 case _:
                     raise ValueError(f"Unsupported device type: {device['type']}")
@@ -216,8 +219,8 @@ class Monika():
         #fix the space
         #convert to geodataframe
         df_deeper = gpd.GeoDataFrame(df_deeper, geometry = gpd.points_from_xy(df_deeper['X[WGS84]'],df_deeper['Y[WGS84]'],crs='4326'),crs='4326').to_crs(self.coordinate_system)
-        df_deeper['HW'] = df_deeper.geometry.y
-        df_deeper['RW'] = df_deeper.geometry.x
+        df_deeper['HW_Deeper'] = df_deeper.geometry.y
+        df_deeper['RW_Deeper'] = df_deeper.geometry.x
         
         
         return df_deeper        
@@ -437,8 +440,185 @@ class Monika():
         None.
 
         """
-        print('GPS read functionality as not been implemented yet')
-        return
+        def nmea_to_wgs84(value, direction):
+            """
+            Convert NMEA lat/lon to WGS84 decimal degrees.
+            value: float or str (ddmm.mmmm or dddmm.mmmm)
+            """
+            value = float(value)
+        
+            degrees = int(value // 100)
+            minutes = value - degrees * 100
+        
+            decimal = degrees + minutes / 60
+        
+            if direction in ("S", "W"):
+                decimal *= -1
+        
+            return decimal
+        
+        
+        def extract_nmea(line,print_out=True):
+    
+            """
+            Extract selected information from NMEA 0183 GGA or RMC sentences.
+        
+            Supported sentence types
+            ------------------------
+            - GGA: Global Positioning System Fix Data
+            - RMC: Recommended Minimum Navigation Information
+        
+            Extracted fields
+            ----------------
+            - time : datetime.time
+                UTC time parsed from the NMEA sentence.
+            - date : datetime.date or None
+                Date parsed from RMC sentences; None for GGA sentences.
+            - lat : str
+                Latitude in NMEA format (DDMM.MMMM + hemisphere letter).
+            - lng : str
+                Longitude in NMEA format (DDDMM.MMMM + hemisphere letter).
+            - height : str or None
+                Altitude including unit (from GGA only).
+            - sat_number : int or None
+                Number of satellites used for the fix (from GGA only).
+            - dop_precision : float or None
+                Horizontal dilution of precision (HDOP) from GGA only.
+        
+            Parameters
+            ----------
+            line : str
+                A single NMEA sentence (e.g. "$GPGGA,...", "$GPRMC,...").
+            print_out : bool, optional
+                If True, prints a human-readable summary to stdout.
+        
+            Returns
+            -------
+            dict or None
+                Dictionary with extracted values if the line is a GGA or RMC
+                sentence, otherwise None.
+        
+            Notes
+            -----
+            - Latitude and longitude are NOT converted to decimal degrees.
+            - The function assumes valid NMEA formatting and does not perform
+              checksum validation.
+            """
+            def nmea_to_wgs84(value, direction):
+                """
+                Convert NMEA lat/lon to WGS84 decimal degrees.
+                value: float or str (ddmm.mmmm or dddmm.mmmm)
+                """
+                value = float(value)
+            
+                degrees = int(value // 100)
+                minutes = value - degrees * 100
+            
+                decimal = degrees + minutes / 60
+            
+                if direction in ("S", "W"):
+                    decimal *= -1
+            
+                return decimal
+            
+            
+            if line.startswith('$') and ('GGA' in line or 'RMC' in line):
+                properties =line.split(',')
+                # UTC time (hhmmss.sss)
+                time = datetime.strptime(properties[1],'%H%M%S.%f').time()
+                # lat and lon
+                #NMEA 0183 uses a representation consisting of degrees and minutes. 
+                #For geographical latitude, “XXYY.ZZZZ” and for geographical longitude, “XXXYY.ZZZZ”; 
+                #with ‘X’ for degrees, “Y.Z” for minutes (including decimal places). 
+                #The number of decimal places for the minutes may vary.
+                lat_id = 2
+                if properties[2].lower() in ['a','v']:
+                    lat_id += 1
+                # NMEA coordinate format: degrees + minutes + hemisphere, hemisphere will control the signs  
+                lat = nmea_to_wgs84(properties[lat_id],properties[lat_id+1])
+                lng = nmea_to_wgs84(properties[lat_id+2],properties[lat_id+3])                
+                
+                # Defaults for optional fields
+                height = None
+                sat_number = None
+                dop_precision = None
+                date_str = ''      
+                
+                if 'GGA' in properties[0]:
+                    line_type = 'GGA'
+                    height = properties[9]#+properties[10]
+                    sat_number = int(properties[lat_id+5])
+                    dop_precision= float(properties[lat_id+6])
+                
+                if 'RMC' in properties[0]:
+                    line_type='RMC'
+                    date_str = datetime.strptime(properties[-4],'%d%m%y').date()
+                
+                if print_out:
+                    print(f"--- Zeit: {time}{date_str} ---")
+                    print(f"Breitengrad: {float(lat[:-1]):.6f} {lat[-1]}")
+                    print(f"Längengrad:  {float(lng[:-1]):.6f} {lng[-1]}")
+                    if 'GGA' in properties[0]:
+                        print(f"Höhe:        {height} {properties[10]}")
+                        print(f"Satelliten:  {sat_number}")
+                        print(f"Satelliten_DOP:  {dop_precision}")
+                    
+                    print("-" * 30)
+                
+                #write output
+                output=dict({'lat':lat,
+                                   'lng':lng,
+                                   'height_gps':height,
+                                   'sat_number':sat_number,
+                                   'dop_precision': dop_precision,
+                                   'date':date_str,
+                                   'time':time,
+                                   'line_type':line_type
+                                   }
+                            )
+                return output
+            else:
+                return
+        
+        #%% Open the data and extract the lines
+        line_id =0
+        nmea_lines=dict()
+        with open(data_path) as file:
+            for line in file:
+                nmea_lines.update({line_id :extract_nmea(line,print_out=False)})
+                line_id+=1
+        
+        df_gps_raw = pd.DataFrame.from_dict(nmea_lines).T
+        #split into the two relevant categories
+        df_GGA = df_gps_raw[df_gps_raw['line_type'] == 'GGA'].set_index('time').drop(columns=['line_type','date'])
+        df_RMC = df_gps_raw[df_gps_raw['line_type'] == 'RMC'].set_index('time')['date']
+        print('GPS GGA and RMC fusion based on same time but date is not considered. For multiple day operation the current implementation fails')
+        df_gps = pd.concat([df_GGA,df_RMC.to_frame()],axis=1)
+        
+        #change the index to true time
+        df_gps.index= pd.to_datetime(df_gps["date"].astype(str).values + " " + df_gps.index.astype(str).values,format='mixed')
+        df_gps.index = df_gps.index.tz_localize(self.time_zone)
+        df_gps.index.name= 'time'
+        #clean  cols
+        df_gps = df_gps.drop(columns=['date'])
+        #enforce numeric
+        df_gps = df_gps.apply(pd.to_numeric, errors="coerce")
+        
+        
+        
+        #interpolate to the next second
+        df_gps = df_gps.loc[~df_gps.index.duplicated(keep='first'), :]
+        df_gps = df_gps.resample('1s').mean()
+        df_gps.index.freq=None
+        # fix the space
+        gdf_gps = gpd.GeoDataFrame(df_gps, geometry = gpd.points_from_xy(df_gps['lng'],df_gps['lat'],crs='4326'),crs='4326').to_crs(self.coordinate_system)
+        df_gps['HW_GPS'] = gdf_gps.geometry.y
+        df_gps['RW_GPS'] = gdf_gps.geometry.x
+        
+        df_gps['name'] = name
+        df_gps['type'] = 'gps'
+        df_gps['fabricate'] = fabricate
+        self.data = pd.concat([self.data,df_gps])
         
     
     def plot_trajectory(self,plt_cfg):
@@ -518,8 +698,8 @@ class Monika():
         ax.imshow(img.transpose(1, 2, 0), extent=extent)
 
         sc = ax.scatter(
-            df_traject["RW"],
-            df_traject["HW"],
+            df_traject[location_cols[1]],
+            df_traject[location_cols[0]],
             c=df_traject[param],
             cmap="viridis",
             s=20
@@ -536,8 +716,8 @@ class Monika():
 
         for _, row in df_labels.iterrows():
             ax.text(
-                row["RW"],
-                row["HW"],
+                row[location_cols[1]],
+                row[location_cols[0]],
                 row["time"].strftime("%H:%M"),
                 fontsize=12,
                 ha="left",
