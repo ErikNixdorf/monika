@@ -50,7 +50,7 @@ class Monika():
     
     #fill nans of the position data by the mean of existing data for each time step
     @staticmethod
-    def _add_spatial_coordinates(df,location_cols =['HW','RW']):
+    def _add_spatial_coordinates(df,gps_device =['deeper_1']):
         """
         fill nans of the position data by the mean of existing data for each time steps
 
@@ -67,7 +67,10 @@ class Monika():
 
         """
         df_out =df.copy()
-        df_out.loc[:,location_cols] = df_out[location_cols].fillna(df_out.reset_index()[location_cols+['time']].groupby('time').mean())
+        #get the valid GPS data from the requested device
+        df_coords = df[df['name'] == gps_device][['HW','RW']].dropna()
+        
+        df_out.loc[:,['HW','RW']] = df_out[['HW','RW']].fillna(df_coords.reset_index()[['HW','RW','time']].groupby('time').mean())
         return df_out
     # delete all subsets which only consist of nan
     @staticmethod
@@ -119,7 +122,8 @@ class Monika():
                                     fabricate=device['fabricate'])
                 
                 case 'deeper':
-                    device['sonar']['data_path'] = self.data_path / device['sonar']['file_name']
+                    if device['sonar']['use_sonar_reflection_data']:
+                        device['sonar']['data_path'] = self.data_path / device['sonar']['file_name']
                     self.add_deeper(fabricate=device['fabricate'],
                                     name=device_name,
                                     data_path = self.data_path / device['file_name'],
@@ -204,7 +208,15 @@ class Monika():
         
         
         df_deeper = pd.read_csv(data_path)
-        df_deeper.columns = ['Y[WGS84]','X[WGS84]','water_depth','t_unix']
+        if len(df_deeper.columns) ==4:
+            df_deeper.columns = ['Y[WGS84]','X[WGS84]','water_depth','t_unix']
+        elif len(df_deeper.columns) ==5:
+            df_deeper.columns = ['Y[WGS84]','X[WGS84]','water_depth','temp','t_unix']
+        else:
+            raise ValueError(f'{len(df_deeper.columns)} is unknown number of columns for labelling them automatically, check data')
+            
+        #replace 0 by nan in location data
+        df_deeper[['Y[WGS84]','X[WGS84]']] = df_deeper[['Y[WGS84]','X[WGS84]']].replace(0,np.nan)
 
         # fix the time
         df_deeper['time'] = df_deeper['t_unix'].apply(lambda x:self._convert_unixtime(x,tz=self.time_zone))
@@ -219,8 +231,8 @@ class Monika():
         #fix the space
         #convert to geodataframe
         df_deeper = gpd.GeoDataFrame(df_deeper, geometry = gpd.points_from_xy(df_deeper['X[WGS84]'],df_deeper['Y[WGS84]'],crs='4326'),crs='4326').to_crs(self.coordinate_system)
-        df_deeper['HW_Deeper'] = df_deeper.geometry.y
-        df_deeper['RW_Deeper'] = df_deeper.geometry.x
+        df_deeper['HW'] = df_deeper.geometry.y
+        df_deeper['RW'] = df_deeper.geometry.x
         
         
         return df_deeper        
@@ -568,7 +580,7 @@ class Monika():
                 #write output
                 output=dict({'lat':lat,
                                    'lng':lng,
-                                   'height_gps':height,
+                                   'height':height,
                                    'sat_number':sat_number,
                                    'dop_precision': dop_precision,
                                    'date':date_str,
@@ -612,8 +624,8 @@ class Monika():
         df_gps.index.freq=None
         # fix the space
         gdf_gps = gpd.GeoDataFrame(df_gps, geometry = gpd.points_from_xy(df_gps['lng'],df_gps['lat'],crs='4326'),crs='4326').to_crs(self.coordinate_system)
-        df_gps['HW_GPS'] = gdf_gps.geometry.y
-        df_gps['RW_GPS'] = gdf_gps.geometry.x
+        df_gps['HW'] = gdf_gps.geometry.y
+        df_gps['RW'] = gdf_gps.geometry.x
         
         df_gps['name'] = name
         df_gps['type'] = 'gps'
@@ -645,29 +657,31 @@ class Monika():
         param = plt_cfg["parameter"]
         device_name = plt_cfg["device_name"]
         label_interval = int(plt_cfg["label_interval"])
-        background_image = plt_cfg["background_image"]  
-        location_cols = plt_cfg['location_cols']
+        background_image = plt_cfg["background_image"]
+        gps_to_use = plt_cfg['gps_to_use']
         
         # --- Data preparation ---
-        df_traject  = self.data[[location_cols[0], location_cols[1],param,'type','name','fabricate']].copy()
+        df_traject  = self.data[['HW', 'RW',param,'type','name','fabricate']].copy()
         
         #fill nans of the position data by the mean of existing data for each time ste
         df_traject = self._add_spatial_coordinates(df_traject,
-                                                   location_cols =location_cols)        
+                                                   gps_device =gps_to_use)        
         # delete all subsets which only consist of nan
         df_traject = self._remove_noentry_devices(df_traject,
                                                   parameter = param,
                                                   device_name_col='name')
         
         #delete all without location and reset time
-        df_traject = df_traject[df_traject[location_cols].count(axis=1)>1].reset_index(drop=False)
+        df_traject = df_traject[df_traject[['HW', 'RW']].count(axis=1)>1].reset_index(drop=False)
         
         # --- Device selection & title ---        
-        if device_name  != 'all':
-            title_str = f"Trajectory of {device_name} during {self.campaign} colored by {param}"
-            df_traject = df_traject[df_traject['name'] == device_name]
+        if device_name [0]  != 'all':
+            title_str = f"Trajectory of {device_name} during {self.campaign} colored by the mean of {param}"
+            df_traject = df_traject[df_traject['name'].isin(device_name)]
         else:
-            title_str = f"Trajectory of {device_name} Devices during {self.campaign} colored by {param}"
+            title_str = f"Trajectory of {device_name} Devices during {self.campaign} colored by the mean of {param}"
+        #get the mean
+        df_traject = df_traject.groupby('time').mean(numeric_only=True).reset_index(drop=False)
         # --- Label selection ---
         label_interval = pd.Timedelta(minutes=label_interval)
         t0 = df_traject["time"].iloc[0]
@@ -698,8 +712,8 @@ class Monika():
         ax.imshow(img.transpose(1, 2, 0), extent=extent)
 
         sc = ax.scatter(
-            df_traject[location_cols[1]],
-            df_traject[location_cols[0]],
+            df_traject['RW'],
+            df_traject['HW'],
             c=df_traject[param],
             cmap="viridis",
             s=20
@@ -716,8 +730,8 @@ class Monika():
 
         for _, row in df_labels.iterrows():
             ax.text(
-                row[location_cols[1]],
-                row[location_cols[0]],
+                row['RW'],
+                row['HW'],
                 row["time"].strftime("%H:%M"),
                 fontsize=12,
                 ha="left",
@@ -732,10 +746,12 @@ class Monika():
             
             
         # --- Save outputs ---
-        plot_name = f"trajectory_of_{param}_of_{device_name}_devices"
+        plot_name = f"trajectory_of_{param}_during_{self.campaign}"
         plot_path = self.output_dir / "plots"    
         plt.savefig(plot_path / f"{plot_name}.png", dpi=300)
+
         plt.close()
+
         df_traject.to_csv(plot_path / f"{plot_name}.csv")
         
         
@@ -763,21 +779,21 @@ class Monika():
         device_name = plt_cfg["device_name"]
         label_interval = int(plt_cfg["label_interval"])
         remove_entries_with_no_location = plt_cfg["remove_entries_with_no_location"]  
-        location_cols = plt_cfg['location_cols']
+        gps_to_use = plt_cfg['gps_to_use']
         
         
         # extract data
-        df_ts = self.data[[location_cols[0], location_cols[1],parameter,'type','name','fabricate']].copy()
+        df_ts = self.data[['HW', 'RW',parameter,'type','name','fabricate']].copy()
         
         location_cols = ['HW', 'RW']
         #fill nans of the position data by the mean of existing data for each time ste
-        df_ts = self._add_spatial_coordinates(df_ts,location_cols =location_cols)        
+        df_ts = self._add_spatial_coordinates(df_ts,gps_device =gps_to_use)        
         # delete all subsets which only consist of nan
         df_ts = self._remove_noentry_devices(df_ts,parameter = parameter,device_name_col='name')    
         
         # reduce data 
-        if device_name.lower() != 'all':
-            df_ts = df_ts[df_ts['name'] == device_name]
+        if device_name[0].lower() != 'all':
+            df_ts = df_ts[df_ts['name'].isin(device_name)]
             
             
         #start figure    
@@ -869,7 +885,7 @@ class Monika():
         plt.tight_layout()
         plt.show()
         
-        plot_name = f"TS_of_{parameter}_of_{device_name}_devices"
+        plot_name = f"TS_of_{parameter}_during_{self.campaign}"
         plot_path = self.output_dir / "plots"    
         plt.savefig(plot_path / f"{plot_name}.png", dpi=300)
         plt.close()

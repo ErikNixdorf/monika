@@ -18,8 +18,6 @@ output:
             gps_to_use: gps_1
             background_image: study_site.tif
             label_interval : 1 # in seconds
-            parameter: height_gps
-            device_name: all
-            location_cols : 
-                - HW_GPS
-                - RW_GPS
+            parameter: height
+            device_name: 
+                - all

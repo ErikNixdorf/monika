@@ -1,6 +1,6 @@
 # This File allows to define how to read the equipment from monika during a campaign and to visualize and export joined results
 info:
-    campaign: Kleine_Spree_20251217
+    campaign: Spree_20251127
     time_zone: Europe/Berlin
     coordinate_system : 25833
     contact: Erik Nixdorf
@@ -13,7 +13,7 @@ devices:
         file_name: monika_left.lev
         config:
                ec_lim: 
-                    - 50
+                    - 700
                     - 5000
                data_separator: "\\s+"
                rows_to_skip: 48
@@ -25,7 +25,7 @@ devices:
         file_name: monika_right.lev
         config:
                ec_lim: 
-                    - 50
+                    - 700
                     - 5000
                data_separator: "\\s+"
                rows_to_skip: 48
@@ -34,11 +34,11 @@ devices:
     deeper_1:
         type: deeper
         fabricate: deeper_chirp3+
-        file_name: deeper_kleine_spree.csv
+        file_name: depth_map_data.csv
         sonar:
-               use_sonar_reflection_data: true
+               use_sonar_reflection_data: false
                sonar_config:
-               file_name: sonar.csv
+               file_name: 
                pixel_resolution: 0.0025
                min_water_depth : 0.1
                resample_resolution : 1s
@@ -48,17 +48,17 @@ output:
         config:
             gps_to_use: deeper_1
             background_image: study_site.tif
-            label_interval : 1 # in minutes
-            parameter: temp
+            label_interval : 5 # in minutes
+            parameter: EC25
             device_name: 
-                - all
+                - ltc_left
     plot_2:
         type: trajectory
         config:
             gps_to_use: deeper_1
             background_image: study_site.tif
-            label_interval : 1 # in minutes
-            parameter: EC25
+            label_interval : 5 # in minutes
+            parameter: temp
             device_name: 
                 - all
     plot_3:
@@ -71,5 +71,13 @@ output:
                 - all
             remove_entries_with_no_location: true
     plot_4:
-        type: sonar_strength
-        device_name: deeper_1            
+        type: timeseries
+        config:
+            gps_to_use: deeper_1
+            label_interval : 100 # in meter
+            parameter: temp
+            device_name: 
+                - ltc_left
+                - ltc_right
+                - deeper_1
+            remove_entries_with_no_location: true
