@@ -58,7 +58,7 @@ output:
             gps_to_use: deeper_1
             background_image: study_site.tif
             label_interval : 1 # in minutes
-            parameter: EC25
+            parameter: EC25       
             device_name: 
                 - all
     plot_3:

@@ -8,6 +8,7 @@ import rasterio
 import numpy as np
 import pytz
 import yaml
+import matplotlib.patheffects as path_effects
 #%% Write a class Monika for this
 from pathlib import Path
         
@@ -313,7 +314,7 @@ class Monika():
                 var_name='depth',
                 value_name='echo_strength'
             )
-        
+            df_long['depth']=df_long['depth'].astype(float)
             # Set MultiIndex and remove duplicates
             df_long = df_long.set_index(['time', 'depth'])
             df_long = df_long[~df_long.index.duplicated(keep=False)]
@@ -339,6 +340,7 @@ class Monika():
         #df_sonar to next second
         df_sonar = df_sonar.set_index('time',drop=True)
         df_sonar = df_sonar.drop(columns=[0])
+        df_sonar.columns = df_sonar.columns.astype(float)
         # resample
         if cfg['resample_resolution'] is not None:
             df_sonar = df_sonar.loc[~df_sonar.index.duplicated(keep='first'), :]
@@ -654,7 +656,16 @@ class Monika():
         """
         
         # --- Config ---
+        param_labels=dict({'EC25':{'name':'Electric Conductance',
+                                  'unit': r'[$\mu$S/cm]'},
+                          'temp':{'name':'Water Temperature',
+                                  'unit':'[°C]'},
+                                  }
+                          )
         param = plt_cfg["parameter"]
+        
+        param_label=param_labels[param]
+        
         device_name = plt_cfg["device_name"]
         label_interval = int(plt_cfg["label_interval"])
         background_image = plt_cfg["background_image"]
@@ -676,10 +687,10 @@ class Monika():
         
         # --- Device selection & title ---        
         if device_name [0]  != 'all':
-            title_str = f"Trajectory of {device_name} during {self.campaign} colored by the mean of {param}"
+            title_str = f"Trajectory of MONICA colored by {param_label['name']} of sensor {device_name [0]}"
             df_traject = df_traject[df_traject['name'].isin(device_name)]
         else:
-            title_str = f"Trajectory of {device_name} Devices during {self.campaign} colored by the mean of {param}"
+            title_str = f"Trajectory of MONICA colored by {param_label['name']}"
         #get the mean
         df_traject = df_traject.groupby('time').mean(numeric_only=True).reset_index(drop=False)
         # --- Label selection ---
@@ -706,7 +717,7 @@ class Monika():
 
         # --- Plot ---
         fig, ax = plt.subplots(figsize=(16, 9))
-
+        
         # Show background
         # transpose the image from (bands, H, W) → (H, W, bands)
         ax.imshow(img.transpose(1, 2, 0), extent=extent)
@@ -715,35 +726,39 @@ class Monika():
             df_traject['RW'],
             df_traject['HW'],
             c=df_traject[param],
-            cmap="viridis",
+            cmap="Oranges",
             s=20
         )
 
         cbar = plt.colorbar(sc, ax=ax)
-        cbar.set_label(param)
+        cbar.set_label(f"{param_label['name']} {param_label['unit']}",fontsize=14)
+        cbar.ax.tick_params(labelsize=14)
+        # Set labels with font sizes
+        ax.set_xlabel(f"Easting [epsg:{self.coordinate_system}]", fontsize=14)
+        ax.set_ylabel(f"Northing [epsg:{self.coordinate_system}]", fontsize=14)
+        ax.set_title(title_str, fontsize=14)
         
-        ax.set(
-            xlabel="Easting",
-            ylabel="Northing",
-            title=title_str,
-        )
+        ax.tick_params(axis='both', labelsize=12) 
 
+        ax.ticklabel_format(useOffset=False, style='plain')
         for _, row in df_labels.iterrows():
             ax.text(
                 row['RW'],
                 row['HW'],
                 row["time"].strftime("%H:%M"),
                 fontsize=12,
+                color='w',
                 ha="left",
                 va="bottom",
-            bbox=dict(
-                boxstyle="round,pad=0.2",
-                facecolor="grey",
-                edgecolor="black",
-                alpha=0.5
+                bbox=dict(
+                    boxstyle="round,pad=0.2",
+                    facecolor="grey",
+                    edgecolor="black",
+                    alpha=0.5
+                ),
+                path_effects=[
+                    path_effects.withStroke(linewidth=2, foreground="black")],
             )
-            )
-            
             
         # --- Save outputs ---
         plot_name = f"trajectory_of_{param}_during_{self.campaign}"
