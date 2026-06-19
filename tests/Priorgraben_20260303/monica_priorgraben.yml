@@ -1,0 +1,68 @@
+# This File allows to define how to read the equipment from monika during a campaign and to visualize and export joined results
+info:
+    campaign: Priorgraben_20260303
+    time_zone: Europe/Berlin
+    coordinate_system : 25833
+    contact: Erik Nixdorf
+    data_dir: tests\ # all data is located relativ to this path and considering that next level dir is named after the campaign
+#input describes the location of all input datasets as well as parameter specifications
+devices:
+    deeper_1:
+        type: deeper
+        fabricate: deeper_chirp3+
+        file_name: scan_data_2026-03-03_132853.csv
+        river_stage: river_stage_2026-03-03.csv
+    deeper_2:
+        type: deeper
+        fabricate: deeper_chirp3+
+        file_name: scan_data_2026-03-03_143846.csv
+        river_stage: river_stage_2026-03-03.csv
+    deeper_3:
+        type: deeper
+        fabricate: deeper_chirp3+
+        file_name: scan_data_2026-03-03_144918.csv
+        river_stage: river_stage_2026-03-03.csv
+    gps_1:
+        type: gps
+        fabricate: GNS_3000
+        file_name: LOG00003.GPX
+output:
+    plot_1:
+        type: trajectory
+        config:
+            gps_to_use: deeper_1
+            background_image: study_site.tif
+            label_interval : 1 # in minutes
+            parameter: bed_elevation
+            device_name: 
+                - deeper_1
+    plot_2:
+        type: trajectory
+        config:
+            gps_to_use: deeper_1
+            background_image: study_site.tif
+            label_interval : 1 # in minutes
+            parameter: water_depth       
+            device_name: 
+                - deeper_2
+    plot_3:
+        type: trajectory
+        config:
+            gps_to_use: deeper_1
+            background_image: study_site.tif
+            label_interval : 1 # in minutes
+            parameter: water_depth       
+            device_name: 
+                - deeper_2
+    plot_4:
+        type: timeseries
+        config:
+            gps_to_use: deeper_1
+            label_interval : 100 # in meter
+            parameter: EC25
+            device_name: 
+                - all
+            remove_entries_with_no_location: true
+    plot_4:
+        type: sonar_strength
+        device_name: deeper_1            
