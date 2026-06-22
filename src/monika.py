@@ -9,6 +9,7 @@ import numpy as np
 import pytz
 import yaml
 import matplotlib.patheffects as path_effects
+import xml.etree.ElementTree as ET
 #%% Write a class Monika for this
 from pathlib import Path
         
@@ -123,8 +124,10 @@ class Monika():
                                     fabricate=device['fabricate'])
                 
                 case 'deeper':
-                    if device['sonar']['use_sonar_reflection_data']:
+                    if 'sonar' in device and device['sonar']['use_sonar_reflection_data']:
                         device['sonar']['data_path'] = self.data_path / device['sonar']['file_name']
+                    else:
+                        device.update({'sonar':{'use_sonar_reflection_data' : False}})
                     self.add_deeper(fabricate=device['fabricate'],
                                     name=device_name,
                                     data_path = self.data_path / device['file_name'],
@@ -471,6 +474,35 @@ class Monika():
         
             return decimal
         
+        def extract_gpx(file_path):
+            # Parse the GPX file
+            tree=ET.parse(file_path)
+            root=tree.getroot()
+            
+            # Define the namespace
+            ns = {'gpx': 'http://www.topografix.com/GPX/1/1'}
+           
+            # Extract track points
+            track_points = dict()
+            idx=0
+            for trkpt in root.findall('.//gpx:trkpt', ns):
+                lat = trkpt.get('lat')
+                lon = trkpt.get('lon')
+                ele = trkpt.find('gpx:ele', ns).text
+                time = trkpt.find('gpx:time', ns).text
+                track_points.update({idx:{
+                    'lat': float(lat),
+                    'lng': float(lon),
+                    'height': float(ele),
+                    'time': time
+                }})
+                idx+=1
+            df_gps = pd.DataFrame.from_dict(track_points).T
+            df_gps['time'] = pd.to_datetime(df_gps['time'])
+            df_gps['time'] = df_gps['time'].dt.tz_convert(self.time_zone)
+            df_gps = df_gps.set_index('time')
+            return df_gps
+        
         
         def extract_nmea(line,print_out=True):
     
@@ -595,30 +627,39 @@ class Monika():
                 return
         
         #%% Open the data and extract the lines
-        line_id =0
-        nmea_lines=dict()
-        with open(data_path) as file:
-            for line in file:
-                nmea_lines.update({line_id :extract_nmea(line,print_out=False)})
-                line_id+=1
+        def nmea_to_dataframe(data_path):
+            line_id =0
+            nmea_lines=dict()
+            with open(data_path) as file:
+                for line in file:
+                    nmea_lines.update({line_id :extract_nmea(line,print_out=False)})
+                    line_id+=1
+            
+            df_gps_raw = pd.DataFrame.from_dict(nmea_lines).T
+            #split into the two relevant categories
+            df_GGA = df_gps_raw[df_gps_raw['line_type'] == 'GGA'].set_index('time').drop(columns=['line_type','date'])
+            df_RMC = df_gps_raw[df_gps_raw['line_type'] == 'RMC'].set_index('time')['date']
+            print('GPS GGA and RMC fusion based on same time but date is not considered. For multiple day operation the current implementation fails')
+            df_gps = pd.concat([df_GGA,df_RMC.to_frame()],axis=1)
+            
+            #change the index to true time
+            df_gps.index= pd.to_datetime(df_gps["date"].astype(str).values + " " + df_gps.index.astype(str).values,format='mixed')
+            df_gps.index = df_gps.index.tz_localize(self.time_zone)
+            df_gps.index.name= 'time'
+            #clean  cols
+            df_gps = df_gps.drop(columns=['date'])
+            #enforce numeric
+            df_gps = df_gps.apply(pd.to_numeric, errors="coerce")
+            
+            return df_gps
         
-        df_gps_raw = pd.DataFrame.from_dict(nmea_lines).T
-        #split into the two relevant categories
-        df_GGA = df_gps_raw[df_gps_raw['line_type'] == 'GGA'].set_index('time').drop(columns=['line_type','date'])
-        df_RMC = df_gps_raw[df_gps_raw['line_type'] == 'RMC'].set_index('time')['date']
-        print('GPS GGA and RMC fusion based on same time but date is not considered. For multiple day operation the current implementation fails')
-        df_gps = pd.concat([df_GGA,df_RMC.to_frame()],axis=1)
-        
-        #change the index to true time
-        df_gps.index= pd.to_datetime(df_gps["date"].astype(str).values + " " + df_gps.index.astype(str).values,format='mixed')
-        df_gps.index = df_gps.index.tz_localize(self.time_zone)
-        df_gps.index.name= 'time'
-        #clean  cols
-        df_gps = df_gps.drop(columns=['date'])
-        #enforce numeric
-        df_gps = df_gps.apply(pd.to_numeric, errors="coerce")
-        
-        
+        if data_path.name.endswith('txt'):
+            print('Assuming the GPS Record is in NMEA data format, try to parse')
+            df_gps = nmea_to_dataframe(data_path)
+        elif data_path.name.endswith('GPX'):
+            df_gps = extract_gpx(data_path)
+        else:
+            raise ValueError(f'{data_path.name} is an unknown format for GPS data')
         
         #interpolate to the next second
         df_gps = df_gps.loc[~df_gps.index.duplicated(keep='first'), :]
@@ -956,11 +997,11 @@ class Monika():
 
 
 #%% test the scheme
-def run_demo(plot=True,config_path=Path.cwd() / 'tests' / 'Kleine_Spree_20251217' / 'monika_kl_spree.yml' ):
+def run_demo(plot=True,config_path=Path.cwd().parent / 'tests' / 'Kleine_Spree_20251217' / 'monica_kl_spree.yml' ):
     """Run a demonstration of the MONIKA processing and plotting pipeline."""
 
     monika = Monika(
-        wd=Path.cwd(),
+        wd=Path.cwd().parent,
         config_path=config_path)
     
     monika.add_devices()

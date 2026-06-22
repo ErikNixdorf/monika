@@ -7,7 +7,7 @@ from pathlib import Path
 #spree_campaign = Monika(config_path = Path.cwd() / 'tests' / 'Spree_20251127' / 'monika_spree.yml')
 #spree_campaign.add_devices()
 #spree_campaign.export_results()
-
-kl_spree_campaign = Monika(config_path = Path.cwd() / 'tests' / 'Kleine_Spree_20251217' / 'monika_kl_spree.yml')
-kl_spree_campaign.add_devices()
-kl_spree_campaign.export_results()
+#priorgraben_campaign = Monika(config_path = Path.cwd() / 'tests' / 'GPS_Test' / 'monika_gps_test.yml')
+priorgraben_campaign = Monika(config_path = Path.cwd() / 'tests' / 'Priorgraben_20260303' / 'monica_priorgraben.yml')
+priorgraben_campaign.add_devices()
+priorgraben_campaign.export_results()

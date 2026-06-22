@@ -48,7 +48,7 @@ output:
     plot_3:
         type: trajectory
         config:
-            gps_to_use: deeper_1
+            gps_to_use: gps_1
             background_image: study_site.tif
             label_interval : 1 # in minutes
             parameter: water_depth       
@@ -61,7 +61,9 @@ output:
             label_interval : 100 # in meter
             parameter: EC25
             device_name: 
-                - all
+                - deeper_1
+                - deeper_2
+                - deeper_3
             remove_entries_with_no_location: true
     plot_4:
         type: sonar_strength

@@ -10,7 +10,7 @@ devices:
     gps_1:
         type: gps
         fabricate: GNS_3000
-        file_name: LOG00001.TXT
+        file_name: LOG00001.txt
 output:
     plot_1:
         type: trajectory
