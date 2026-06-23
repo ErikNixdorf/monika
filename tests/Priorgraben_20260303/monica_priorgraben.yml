@@ -11,21 +11,20 @@ devices:
         type: deeper
         fabricate: deeper_chirp3+
         file_name: scan_data_2026-03-03_132853.csv
-        river_stage: river_stage_2026-03-03.csv
     deeper_2:
         type: deeper
         fabricate: deeper_chirp3+
         file_name: scan_data_2026-03-03_143846.csv
-        river_stage: river_stage_2026-03-03.csv
     deeper_3:
         type: deeper
         fabricate: deeper_chirp3+
         file_name: scan_data_2026-03-03_144918.csv
-        river_stage: river_stage_2026-03-03.csv
     gps_1:
         type: gps
         fabricate: GNS_3000
         file_name: LOG00003.GPX
+auxiliary_datasets:
+    river_stage: river_stage_2026-03-03.csv
 output:
     plot_1:
         type: trajectory
@@ -39,32 +38,45 @@ output:
     plot_2:
         type: trajectory
         config:
+            gps_to_use: deeper_3
+            background_image: study_site.tif
+            label_interval : 1 # in minutes
+            parameter: bed_elevation
+            device_name: 
+                - deeper_3
+    plot_3:
+        type: trajectory
+        config:
             gps_to_use: deeper_1
             background_image: study_site.tif
             label_interval : 1 # in minutes
             parameter: water_depth       
             device_name: 
-                - deeper_2
-    plot_3:
+                - deeper_1
+    plot_4:
         type: trajectory
         config:
-            gps_to_use: gps_1
+            gps_to_use: deeper_3
             background_image: study_site.tif
             label_interval : 1 # in minutes
             parameter: water_depth       
             device_name: 
-                - deeper_2
-    plot_4:
+                - deeper_3
+    plot_5:
         type: timeseries
         config:
             gps_to_use: deeper_1
             label_interval : 100 # in meter
-            parameter: EC25
+            parameter: water_depth
             device_name: 
                 - deeper_1
-                - deeper_2
-                - deeper_3
             remove_entries_with_no_location: true
-    plot_4:
-        type: sonar_strength
-        device_name: deeper_1            
+    plot_6:
+        type: timeseries
+        config:
+            gps_to_use: deeper_3
+            label_interval : 100 # in meter
+            parameter: water_depth
+            device_name: 
+                - deeper_3
+            remove_entries_with_no_location: true              

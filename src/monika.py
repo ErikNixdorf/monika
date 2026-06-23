@@ -41,6 +41,18 @@ class Monika():
         self.data = pd.DataFrame()
         self.sonar_reflections=dict()
         
+        self.ax_ds = dict()
+        
+        # read the auxilliary datasets
+        if 'auxiliary_datasets' in self.monika_cfg.keys():
+            for ax_ds in self.monika_cfg['auxiliary_datasets'].keys():
+                match ax_ds.lower():
+                    case 'river_stage':
+                        df = pd.read_csv(self.data_path /self.monika_cfg['auxiliary_datasets'][ax_ds])
+                        self.ax_ds[ax_ds.lower()] =gpd.GeoDataFrame(df,
+                                              geometry=gpd.points_from_xy(df['Easting'], df['Northing']),
+                                              crs=self.monika_cfg['info']['coordinate_system']
+                                              ) 
     @property
     def deeper(self):
         return self.data[self.data["type"] == "deeper"]
@@ -48,6 +60,16 @@ class Monika():
     @property
     def logger(self):
         return self.data[self.data["type"] == "logger"]
+    
+    # Function to compute the bed elevation
+    @staticmethod
+    def _compute_bed_elevation(df,df_river_stage,stage_col = 'stage_smoothed'):
+        mask = ~df['water_depth'].isna()
+        nearest = gpd.sjoin_nearest(df[mask], df_river_stage)[stage_col] # merge by nearest point
+        df_out = pd.concat([df,nearest],axis=1)
+        df_out['bed_elevation'] = df_out[stage_col] - df['water_depth']
+        return df_out
+        
     
     
     #fill nans of the position data by the mean of existing data for each time step
@@ -71,8 +93,8 @@ class Monika():
         df_out =df.copy()
         #get the valid GPS data from the requested device
         df_coords = df[df['name'] == gps_device][['HW','RW']].dropna()
-        
-        df_out.loc[:,['HW','RW']] = df_out[['HW','RW']].fillna(df_coords.reset_index()[['HW','RW','time']].groupby('time').mean())
+        #update the values for equal time_steps
+        df_out.update(df_coords[['HW','RW']])
         return df_out
     # delete all subsets which only consist of nan
     @staticmethod
@@ -229,7 +251,7 @@ class Monika():
         #round to next second
         df_deeper = df_deeper.set_index('time',drop=True)
         #interpolate to next second
-        df_deeper = df_deeper.loc[~df_deeper.index.duplicated(keep='first'), :]
+        df_deeper = df_deeper.groupby(df_deeper.index).first()
         df_deeper = df_deeper.resample('1s').mean()
         df_deeper.index.freq=None
         #fix the space
@@ -701,49 +723,53 @@ class Monika():
                                   'unit': r'[$\mu$S/cm]'},
                           'temp':{'name':'Water Temperature',
                                   'unit':'[°C]'},
+                          'bed_elevation':{'name':'Riverbed Elevation',
+                                  'unit':'[m.a.s.l.]'},
+                          'water_depth':{'name':'Water Depth',
+                                         'unit': 'm'}
                                   }
                           )
         param = plt_cfg["parameter"]
         
         param_label=param_labels[param]
         
-        device_name = plt_cfg["device_name"]
+        devices = plt_cfg["device_name"]
         label_interval = int(plt_cfg["label_interval"])
         background_image = plt_cfg["background_image"]
         gps_to_use = plt_cfg['gps_to_use']
         
         # --- Data preparation ---
-        df_traject  = self.data[['HW', 'RW',param,'type','name','fabricate']].copy()
-        
+        #generate a copy of existing dataset
+        df_trajects = self.data.copy()
         #fill nans of the position data by the mean of existing data for each time ste
-        df_traject = self._add_spatial_coordinates(df_traject,
-                                                   gps_device =gps_to_use)        
+        print(f'Compute {param} using GPS from {gps_to_use}')
+        df_trajects = self._add_spatial_coordinates(df_trajects,
+                                                   gps_device =gps_to_use)
+        
+        #remove non relevant sensors
+        df_trajects = df_trajects[df_trajects['name'].isin(devices)]
+        
+        #check if parameter is existing otherwise compute it        
+        
+        if param not in df_trajects.columns:
+            print(f'Parameter {param} not in dataset')
+        match param:
+            case 'bed_elevation':
+                print(f'Compute bed elevation using GPS from {gps_to_use}')
+                df_trajects = self._compute_bed_elevation(df_trajects,self.ax_ds['river_stage'])
+        #reduce dataset size        
+        df_trajects  = df_trajects[['HW', 'RW',param,'type','name','fabricate']].copy()
+        
         # delete all subsets which only consist of nan
-        df_traject = self._remove_noentry_devices(df_traject,
+        df_trajects = self._remove_noentry_devices(df_trajects,
                                                   parameter = param,
                                                   device_name_col='name')
         
         #delete all without location and reset time
-        df_traject = df_traject[df_traject[['HW', 'RW']].count(axis=1)>1].reset_index(drop=False)
+        df_trajects = df_trajects[df_trajects[['HW', 'RW']].count(axis=1)>1].reset_index(drop=False)
         
-        # --- Device selection & title ---        
-        if device_name [0]  != 'all':
-            title_str = f"Trajectory of MONICA colored by {param_label['name']} of sensor {device_name [0]}"
-            df_traject = df_traject[df_traject['name'].isin(device_name)]
-        else:
-            title_str = f"Trajectory of MONICA colored by {param_label['name']}"
-        #get the mean
-        df_traject = df_traject.groupby('time').mean(numeric_only=True).reset_index(drop=False)
-        # --- Label selection ---
-        label_interval = pd.Timedelta(minutes=label_interval)
-        t0 = df_traject["time"].iloc[0]
-        label_mask = (
-            (df_traject["time"] - t0) % label_interval
-            < pd.Timedelta(seconds=1)
-        )
-        df_labels = df_traject[label_mask]
-
-
+        
+        # %% prepare the plotting
         # --- Load background raster ---
         tiff_path = self.data_path / background_image
         with rasterio.open(tiff_path) as src:
@@ -753,65 +779,75 @@ class Monika():
                 src.bounds.right,
                 src.bounds.bottom,
                 src.bounds.top
-            ]
-
-
-        # --- Plot ---
-        fig, ax = plt.subplots(figsize=(16, 9))
+            ]        
         
-        # Show background
-        # transpose the image from (bands, H, W) → (H, W, bands)
-        ax.imshow(img.transpose(1, 2, 0), extent=extent)
-
-        sc = ax.scatter(
-            df_traject['RW'],
-            df_traject['HW'],
-            c=df_traject[param],
-            cmap="Oranges",
-            s=20
-        )
-
-        cbar = plt.colorbar(sc, ax=ax)
-        cbar.set_label(f"{param_label['name']} {param_label['unit']}",fontsize=14)
-        cbar.ax.tick_params(labelsize=14)
-        # Set labels with font sizes
-        ax.set_xlabel(f"Easting [epsg:{self.coordinate_system}]", fontsize=14)
-        ax.set_ylabel(f"Northing [epsg:{self.coordinate_system}]", fontsize=14)
-        ax.set_title(title_str, fontsize=14)
-        
-        ax.tick_params(axis='both', labelsize=12) 
-
-        ax.ticklabel_format(useOffset=False, style='plain')
-        for _, row in df_labels.iterrows():
-            ax.text(
-                row['RW'],
-                row['HW'],
-                row["time"].strftime("%H:%M"),
-                fontsize=12,
-                color='w',
-                ha="left",
-                va="bottom",
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor="grey",
-                    edgecolor="black",
-                    alpha=0.5
-                ),
-                path_effects=[
-                    path_effects.withStroke(linewidth=2, foreground="black")],
-            )
+        for device in devices:
+            df_traject = df_trajects[df_trajects['name'] == device]
             
-        # --- Save outputs ---
-        plot_name = f"trajectory_of_{param}_during_{self.campaign}"
-        plot_path = self.output_dir / "plots"    
-        plt.savefig(plot_path / f"{plot_name}.png", dpi=300)
+            # --- Label selection ---
+            dt = pd.Timedelta(minutes=label_interval)
+            t0 = df_traject["time"].iloc[0]
+            label_mask = (
+                (df_traject["time"] - t0) % dt
+                < pd.Timedelta(seconds=1)
+            )
+            df_labels = df_traject[label_mask]
 
-        plt.close()
-
-        df_traject.to_csv(plot_path / f"{plot_name}.csv")
+            # --- Plot ---
+            fig, ax = plt.subplots(figsize=(16, 9))
+            title_str = f"Trajectory of MONICA colored by {param_label['name']} from {device}"
+            # Show background
+            # transpose the image from (bands, H, W) → (H, W, bands)
+            ax.imshow(img.transpose(1, 2, 0), extent=extent)
+    
+            sc = ax.scatter(
+                df_traject['RW'],
+                df_traject['HW'],
+                c=df_traject[param],
+                cmap="Oranges",
+                s=20
+            )
+    
+            cbar = plt.colorbar(sc, ax=ax)
+            cbar.set_label(f"{param_label['name']} {param_label['unit']}",fontsize=14)
+            cbar.ax.tick_params(labelsize=14)
+            # Set labels with font sizes
+            ax.set_xlabel(f"Easting [epsg:{self.coordinate_system}]", fontsize=14)
+            ax.set_ylabel(f"Northing [epsg:{self.coordinate_system}]", fontsize=14)
+            ax.set_title(title_str, fontsize=14)
+            
+            ax.tick_params(axis='both', labelsize=12) 
+    
+            ax.ticklabel_format(useOffset=False, style='plain')
+            for _, row in df_labels.iterrows():
+                ax.text(
+                    row['RW'],
+                    row['HW'],
+                    row["time"].strftime("%H:%M"),
+                    fontsize=12,
+                    color='w',
+                    ha="left",
+                    va="bottom",
+                    bbox=dict(
+                        boxstyle="round,pad=0.2",
+                        facecolor="grey",
+                        edgecolor="black",
+                        alpha=0.5
+                    ),
+                    path_effects=[
+                        path_effects.withStroke(linewidth=2, foreground="black")],
+                )
+                
+            # --- Save outputs ---
+            plot_name = f"trajectory_of_{param}_at_{device}_during_{self.campaign}"
+            plot_path = self.output_dir / "plots"    
+            plt.savefig(plot_path / f"{plot_name}.png", dpi=300)
+    
+            plt.close()
+    
+            df_traject.to_csv(plot_path / f"{plot_name}.csv")
         
-        
-        return df_traject
+        return df_trajects
         
 
     def plot_timeseries(self,plt_cfg):
