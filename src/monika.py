@@ -73,8 +73,9 @@ class Monika():
     
     
     #fill nans of the position data by the mean of existing data for each time step
-    @staticmethod
-    def _add_spatial_coordinates(df,gps_device =['deeper_1']):
+    def _add_spatial_coordinates(self,
+                                 df,
+                                 gps_device =['deeper_1']):
         """
         fill nans of the position data by the mean of existing data for each time steps
 
@@ -90,10 +91,18 @@ class Monika():
         None.
 
         """
-        df_out =df.copy()
-        #get the valid GPS data from the requested device
-        df_coords = df[df['name'] == gps_device][['HW','RW']].dropna()
-        #update the values for equal time_steps
+        df_out =df.copy()          
+        if gps_device.lower() == 'river_stage':
+            gdf = gpd.GeoDataFrame(df_out,geometry=gpd.points_from_xy(df['RW'], df['HW']),crs=self.monika_cfg['info']['coordinate_system'])
+            #mask the ones with no coordinate data
+            mask = ~gdf[['HW', 'RW']].isna().any(axis=1)
+            nearest = gpd.sjoin_nearest(gdf[mask], self.ax_ds[gps_device.lower()])
+            df_coords = nearest[['Northing','Easting']].dropna().rename(columns={'Northing':'HW','Easting':'RW'})
+        else:
+            #get the valid GPS data from the requested device
+            df_coords = df[df['name'] == gps_device][['HW','RW']].dropna()
+            #update the values for equal time_steps
+ 
         df_out.update(df_coords[['HW','RW']])
         return df_out
     # delete all subsets which only consist of nan
@@ -186,8 +195,10 @@ class Monika():
             match vis['type']:                
                 case 'trajectory':
                     _ = self.plot_trajectory(vis['config'])
-                case 'timeseries':
-                    _ = self.plot_timeseries(vis['config'])
+                case 'time_series':
+                    _ = self.plot_profile(vis['config'],profile_type='time_series')
+                case 'transect_profile':
+                    _ = self.plot_profile(vis['config'],profile_type='transect_profile')
                 case 'sonar_strength':
                     _ = self.plot_sonar_strength(name = vis['device_name'])
                     
@@ -850,7 +861,7 @@ class Monika():
         return df_trajects
         
 
-    def plot_timeseries(self,plt_cfg):
+    def plot_profile(self,plt_cfg,profile_type='time_series'):
         """
         
         Parameters
@@ -867,25 +878,39 @@ class Monika():
         """
         
         # --- Config ---
-        parameter = plt_cfg["parameter"]
-        device_name = plt_cfg["device_name"]
-        label_interval = int(plt_cfg["label_interval"])
+        param = plt_cfg["parameter"]
+        devices = plt_cfg["device_name"]
+        if plt_cfg["label_interval"] is None:
+            label_interval = 0
         remove_entries_with_no_location = plt_cfg["remove_entries_with_no_location"]  
         gps_to_use = plt_cfg['gps_to_use']
         
-        
-        # extract data
-        df_ts = self.data[['HW', 'RW',parameter,'type','name','fabricate']].copy()
-        
-        location_cols = ['HW', 'RW']
+        #generate a copy of existing dataset
+        df_ts = self.data.copy()
         #fill nans of the position data by the mean of existing data for each time ste
-        df_ts = self._add_spatial_coordinates(df_ts,gps_device =gps_to_use)        
-        # delete all subsets which only consist of nan
-        df_ts = self._remove_noentry_devices(df_ts,parameter = parameter,device_name_col='name')    
+        print(f'Compute {param} using GPS from {gps_to_use}')
+        if gps_to_use is not None:
+            df_ts = self._add_spatial_coordinates(df_ts,
+                                                       gps_device =gps_to_use)
         
-        # reduce data 
-        if device_name[0].lower() != 'all':
-            df_ts = df_ts[df_ts['name'].isin(device_name)]
+        #remove non relevant sensors
+        df_ts = df_ts[df_ts['name'].isin(devices)]
+        
+        #check if parameter is existing otherwise compute it        
+        
+        if param not in df_ts.columns:
+            print(f'Parameter {param} not in dataset')
+        match param:
+            case 'bed_elevation':
+                print(f'Compute bed elevation using GPS from {gps_to_use}')
+                df_ts = self._compute_bed_elevation(df_ts,self.ax_ds['river_stage'])
+        #reduce dataset size        
+        df_ts  = df_ts[['HW', 'RW',param,'type','name','fabricate']].copy()
+               
+        location_cols = ['HW', 'RW']
+        # delete all subsets which only consist of nan
+        df_ts = self._remove_noentry_devices(df_ts,parameter = param,device_name_col='name')    
+        
             
             
         #start figure    
@@ -908,44 +933,62 @@ class Monika():
             group['has_coordinate'] =group[location_cols].count(axis=1)>1            
             if remove_entries_with_no_location:
                 group = group[group['has_coordinate']]
+                
+            # in any case we need to calculate the distances
+            # calculate the distance from first point
+            dx = group['RW'].diff()
+            dy = group['HW'].diff()
+            group['distance'] = np.sqrt(dx**2 + dy**2)
+            #accumulate and replace nan
+            group['distance'] = group['distance'].cumsum().replace(np.nan,0)
+            #add mask for label
+            group['mask'] = (group['distance']  % label_interval).diff()<0
+            t_label_start = group[group['has_coordinate']].iloc[0].name
+            group['distance'] = group['distance'].replace(0,np.nan)
+            group.loc[t_label_start,'distance'] = 0
+            group.loc[t_label_start,'mask'] = True
             
+            match profile_type:
+                    case 'time_series':
+                        # --- Label selection ---                        
+                        xlabel_name = 'time'
+                        txtlabel_name='distance'
+                        txt_label_suffix = 'm'
+                        df_labels = group[group['mask']]
+                        df_labels=df_labels[~df_labels[txtlabel_name].isna()]
+                        df_labels[txtlabel_name] = np.floor(df_labels[txtlabel_name])
+                    case 'transect_profile':
+                        xlabel_name = 'distance'
+                        txtlabel_name='time'
+                        txt_label_suffix = ''
+                        group = group.reset_index(drop=False).set_index('distance')
+                        
+                        # --- Label selection ---
+                        dt = pd.Timedelta(minutes=label_interval)
+                        t0 = group[txtlabel_name].iloc[0]
+                        label_mask = (
+                            (group[txtlabel_name] - t0) % dt
+                            < pd.Timedelta(seconds=1)
+                        )
+                        df_labels = group[label_mask]
+                        df_labels = df_labels.copy()
+                        df_labels[txtlabel_name] = df_labels[txtlabel_name].dt.round(dt).dt.strftime('%H:%M:%S')
             
+            # --- axis plot ---
             _ = ax.plot(
                 group.index,
-                group[parameter],
+                group[param],
                 label=logger,
                 linewidth=2,
                 alpha=0.9
             )
-            # get the color
-            
-            
-            if plot_label:
-                # calculate the distance from first point
-                dx = group['RW'].diff()
-                dy = group['HW'].diff()
-                group['distance'] = np.sqrt(dx**2 + dy**2)
-                #accumulate and replace nan
-                group['distance'] = group['distance'].cumsum().replace(np.nan,0)
-                
-                #add mask for label
-                group['mask'] = (group['distance']  % label_interval).diff()<0
-                
-
-                
-                t_label_start = group[group['has_coordinate']].iloc[0].name
-                group['distance'] = group['distance'].replace(0,np.nan)
-                group.loc[t_label_start,'distance'] = 0
-                group.loc[t_label_start,'mask'] = True
                     
-                
-                df_labels = group[group['mask']]
-                df_labels=df_labels[~df_labels['distance'].isna()]
-                for time, row in df_labels.iterrows():
+            if plot_label:            
+                for _, row in df_labels.reset_index().iterrows():
                     ax.text(
-                        time,
-                        row[parameter],
-                        f'{np.floor(row["distance"])} m',
+                        row[xlabel_name],
+                        row[param],
+                        f'{row[txtlabel_name]} {txt_label_suffix}',
                         fontsize=12,
                         ha="left",
                         va="bottom",
@@ -956,20 +999,21 @@ class Monika():
                         alpha=0.5
                     )
                     )
-                    
                     #plot also a vertical line
-                    ax.axvline(x=time,linestyle='--',color='grey',alpha=0.6)
-                    
+                    ax.axvline(x=row[xlabel_name],linestyle='--',color='grey',alpha=0.6)                    
                 #set label_tool to False
                 plot_label=False
+                        
                 
             
     
-        ax.set_title(f"Times Series of Parameter {parameter} of {device_name} Devices during {self.campaign}", fontsize=16, pad=10)
-        ax.set_ylabel(parameter, fontsize=13)
+        ax.set_title(f"{profile_type} plot of Parameter {param} during {self.campaign}", fontsize=16, pad=10)
+        ax.set_ylabel(param, fontsize=14)
         ax.grid(True, linestyle="--", alpha=0.4)
-        ax.legend(title="Device", frameon=True)
-        ax.set_xlabel('time', fontsize=13)
+        legend = ax.legend(title="Device", frameon=True, fontsize=12)
+        legend.get_title().set_fontsize('14') 
+        ax.set_xlabel(xlabel_name, fontsize=14)
+        ax.tick_params(axis='both', labelsize=12) 
         # Rotate x-axis tick labels
         #plt.setp(ax2.get_xticklabels(), rotation=30)
     
@@ -977,7 +1021,7 @@ class Monika():
         plt.tight_layout()
         plt.show()
         
-        plot_name = f"TS_of_{parameter}_during_{self.campaign}"
+        plot_name = f"{profile_type}_of_{param}_during_{self.campaign}"
         plot_path = self.output_dir / "plots"    
         plt.savefig(plot_path / f"{plot_name}.png", dpi=300)
         plt.close()
