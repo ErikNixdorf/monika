@@ -16,10 +16,11 @@ from pathlib import Path
 class Monika():
     def __init__(self,
                  config_path=Path(),wd=None,
-                 name='monika1'):
+                 name='monika1',paper_mode=False):
         
         # load obvious ones    
         self.name = name
+        self.paper_mode = paper_mode # visualisation for publication Nixdorf et al 2026
         if wd is None:
             self.wd = Path.cwd()
         else:
@@ -740,6 +741,17 @@ class Monika():
                                          'unit': 'm'}
                                   }
                           )
+        
+        if self.paper_mode:
+            cb_props=dict({'bed_elevation':{'palette':"Oranges",
+                                      'vmin': 70,
+                                      'vmax':71},
+                              'water_depth':{'palette':"Blues",
+                                                        'vmin': 0,
+                                                        'vmax':1}
+                                      }
+                              )
+            
         param = plt_cfg["parameter"]
         
         param_label=param_labels[param]
@@ -790,7 +802,9 @@ class Monika():
                 src.bounds.right,
                 src.bounds.bottom,
                 src.bounds.top
-            ]        
+            ]
+        # check min and max prior to plotting
+        param_stats = df_trajects.loc[df_trajects['name'].isin(devices),param].describe()
         
         for device in devices:
             df_traject = df_trajects[df_trajects['name'] == device]
@@ -803,31 +817,49 @@ class Monika():
                 < pd.Timedelta(seconds=1)
             )
             df_labels = df_traject[label_mask]
+            
+            #clarify the props
+            if self.paper_mode and param in cb_props.keys():
+                vmax = cb_props[param]['vmax']
+                vmin = cb_props[param]['vmin']
+                cmap=cb_props[param]['palette']
+                fontsize= 16
+            else:
+                cmap='Oranges'
+                vmax = param_stats['max']
+                vmin = param_stats['min']
+                fontsize = 14
 
             # --- Plot ---
             fig, ax = plt.subplots(figsize=(16, 9))
             title_str = f"Trajectory of MONICA colored by {param_label['name']} from {device}"
             # Show background
             # transpose the image from (bands, H, W) → (H, W, bands)
-            ax.imshow(img.transpose(1, 2, 0), extent=extent)
-    
+            if self.paper_mode:
+                # Ensure grayscale: take first channel or average all
+                img = img[:3,:,:].mean(axis=0)
+                ax.imshow(img, extent=extent, cmap='gray', vmin=0, vmax=255)
+            else:
+                ax.imshow(img.transpose(1, 2, 0), extent=extent)
             sc = ax.scatter(
                 df_traject['RW'],
                 df_traject['HW'],
                 c=df_traject[param],
-                cmap="Oranges",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
                 s=20
             )
     
             cbar = plt.colorbar(sc, ax=ax)
-            cbar.set_label(f"{param_label['name']} {param_label['unit']}",fontsize=14)
-            cbar.ax.tick_params(labelsize=14)
+            cbar.set_label(f"{param_label['name']} {param_label['unit']}",fontsize=fontsize)
+            cbar.ax.tick_params(labelsize=fontsize)
             # Set labels with font sizes
-            ax.set_xlabel(f"Easting [epsg:{self.coordinate_system}]", fontsize=14)
-            ax.set_ylabel(f"Northing [epsg:{self.coordinate_system}]", fontsize=14)
-            ax.set_title(title_str, fontsize=14)
+            ax.set_xlabel(f"Easting [epsg:{self.coordinate_system}]", fontsize=fontsize)
+            ax.set_ylabel(f"Northing [epsg:{self.coordinate_system}]", fontsize=fontsize)
+            ax.set_title(title_str, fontsize=fontsize)
             
-            ax.tick_params(axis='both', labelsize=12) 
+            ax.tick_params(axis='both', labelsize=fontsize-2) 
     
             ax.ticklabel_format(useOffset=False, style='plain')
             for _, row in df_labels.iterrows():
@@ -835,7 +867,7 @@ class Monika():
                     row['RW'],
                     row['HW'],
                     row["time"].strftime("%H:%M"),
-                    fontsize=12,
+                    fontsize=fontsize,
                     color='w',
                     ha="left",
                     va="bottom",
@@ -919,7 +951,7 @@ class Monika():
             ncols=1,
             figsize=(12, 8)
         )
-    
+        x_max = 0 
         # -----------------------------
         # plot the parameter    # -----------------------------
         if label_interval>0:
@@ -948,6 +980,8 @@ class Monika():
             group.loc[t_label_start,'distance'] = 0
             group.loc[t_label_start,'mask'] = True
             
+            if group['distance'].max()>x_max:
+                x_max= group['distance'].max()
             match profile_type:
                     case 'time_series':
                         # --- Label selection ---                        
@@ -1013,6 +1047,7 @@ class Monika():
         legend = ax.legend(title="Device", frameon=True, fontsize=12)
         legend.get_title().set_fontsize('14') 
         ax.set_xlabel(xlabel_name, fontsize=14)
+        ax.set_xlim([0,x_max])
         ax.tick_params(axis='both', labelsize=12) 
         # Rotate x-axis tick labels
         #plt.setp(ax2.get_xticklabels(), rotation=30)

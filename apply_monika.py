@@ -8,6 +8,6 @@ from pathlib import Path
 #spree_campaign.add_devices()
 #spree_campaign.export_results()
 #priorgraben_campaign = Monika(config_path = Path.cwd() / 'tests' / 'GPS_Test' / 'monika_gps_test.yml')
-priorgraben_campaign = Monika(config_path = Path.cwd() / 'tests' / 'Priorgraben_20260303' / 'monica_priorgraben.yml')
+priorgraben_campaign = Monika(config_path = Path.cwd() / 'tests' / 'Priorgraben_20260303' / 'monica_priorgraben.yml',paper_mode=True)
 priorgraben_campaign.add_devices()
 priorgraben_campaign.export_results()
