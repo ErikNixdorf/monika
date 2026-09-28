@@ -7,4 +7,4 @@ src/**/__pycache__/
 ssh_2024
 ssh_2024.pub
 **/__pycache__/
-tests/GPS_Test/
+tests/GPS_Test/*
