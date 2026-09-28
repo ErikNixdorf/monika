@@ -4,9 +4,12 @@ Monika
 
 This package assists to analyse and export data obtained from different sensors that are mounted on the MONICA platform. It provides a framework that has been tested for LTC datalogger from the company Solinst Canada Ltd and the CHIRP Sonar from Deeper UAB 
 
-Data obtained from differents sensors are connected with each other using the time. The plotting routine provides both, time series and transect plots.
-There are 3 test cases in the ``tests`` directory that  provide real field data  from monitoring campaigns
+Data obtained from different sensors are connected with each other using the time. The plotting routine provides both, time series and transect plots.
+There are 3 test cases in the ``tests`` directory that  provide real field data from monitoring campaigns
+
 .. code:: python
+
+   from pathlib import Path
 
    from src.monika import Monika
 
@@ -17,6 +20,4 @@ There are 3 test cases in the ``tests`` directory that  provide real field data 
    spree_campaign.add_devices()
 
    # Export the results
-	spree_campaign.export_results()
-   
-..
+   spree_campaign.export_results()
