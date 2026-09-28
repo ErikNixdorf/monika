@@ -36,7 +36,7 @@ devices:
         fabricate: deeper_chirp3+
         file_name: deeper_kleine_spree.csv
         sonar:
-               use_sonar_reflection_data: true
+               use_sonar_reflection_data: false
                sonar_config:
                file_name: sonar.csv
                pixel_resolution: 0.0025
@@ -82,7 +82,4 @@ output:
             device_name: 
                 - ltc_left
                 - ltc_right
-            remove_entries_with_no_location: true
-    plot_5:
-        type: sonar_strength
-        device_name: deeper_1            
+            remove_entries_with_no_location: true         

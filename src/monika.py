@@ -731,7 +731,7 @@ class Monika():
         """
         
         # --- Config ---
-        param_labels=dict({'EC25':{'name':'Electric Conductance',
+        param_labels=dict({'EC25':{'name':'Electrical Conductance',
                                   'unit': r'[$\mu$S/cm]'},
                           'temp':{'name':'Water Temperature',
                                   'unit':'[°C]'},
@@ -803,6 +803,9 @@ class Monika():
                 src.bounds.bottom,
                 src.bounds.top
             ]
+            if self.paper_mode:
+                # Ensure grayscale: take first channel or average all
+                img = img[:3,:,:].mean(axis=0)
         # check min and max prior to plotting
         param_stats = df_trajects.loc[df_trajects['name'].isin(devices),param].describe()
         
@@ -811,6 +814,7 @@ class Monika():
             
             # --- Label selection ---
             dt = pd.Timedelta(minutes=label_interval)
+
             t0 = df_traject["time"].iloc[0]
             label_mask = (
                 (df_traject["time"] - t0) % dt
@@ -836,8 +840,6 @@ class Monika():
             # Show background
             # transpose the image from (bands, H, W) → (H, W, bands)
             if self.paper_mode:
-                # Ensure grayscale: take first channel or average all
-                img = img[:3,:,:].mean(axis=0)
                 ax.imshow(img, extent=extent, cmap='gray', vmin=0, vmax=255)
             else:
                 ax.imshow(img.transpose(1, 2, 0), extent=extent)
@@ -862,6 +864,8 @@ class Monika():
             ax.tick_params(axis='both', labelsize=fontsize-2) 
     
             ax.ticklabel_format(useOffset=False, style='plain')
+            ax.xaxis.set_major_locator(plt.MaxNLocator(5))
+            ax.yaxis.set_major_locator(plt.MaxNLocator(5))
             for _, row in df_labels.iterrows():
                 ax.text(
                     row['RW'],
@@ -914,6 +918,8 @@ class Monika():
         devices = plt_cfg["device_name"]
         if plt_cfg["label_interval"] is None:
             label_interval = 0
+        else:
+            label_interval = plt_cfg["label_interval"]
         remove_entries_with_no_location = plt_cfg["remove_entries_with_no_location"]  
         gps_to_use = plt_cfg['gps_to_use']
         

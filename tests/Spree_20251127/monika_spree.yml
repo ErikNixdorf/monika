@@ -60,7 +60,7 @@ output:
             label_interval : 5 # in minutes
             parameter: temp
             device_name: 
-                - all
+                - ltc_left
     plot_3:
         type: timeseries
         config:
